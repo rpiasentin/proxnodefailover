@@ -1,0 +1,16 @@
+# Example net-failover.conf
+# Place at: /etc/net-failover.conf (chmod 600)
+
+MGMT_IF="vmbr0"            # Proxmox mgmt bridge
+ETH_LINK_IF="nic0"         # Physical bridge port for carrier detection
+WIFI_IF="wlp2s0"           # Wi-Fi interface
+
+STATIC_CIDR="192.168.1.127/24"
+STATIC_GW="192.168.1.1"
+
+FALLBACK_CIDR="192.168.99.1/24"
+
+WIFI_SSID="Piahas"
+WIFI_PSK="richardpiasentin"
+
+CHECK_INTERVAL="10"
