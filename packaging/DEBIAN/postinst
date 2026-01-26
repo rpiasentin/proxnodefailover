@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+# Copy default config if not exists
+if [ ! -f /etc/net-failover.conf ]; then
+    if [ -f /usr/share/doc/proxnodefailover/examples/net-failover.conf.example ]; then
+        cp /usr/share/doc/proxnodefailover/examples/net-failover.conf.example /etc/net-failover.conf
+        chmod 600 /etc/net-failover.conf
+        echo "Created default config at /etc/net-failover.conf. Please edit it."
+    else
+        # Fallback creation
+        cat > /etc/net-failover.conf <<EOF
+# Net Failover Configuration
+MGMT_IF=vmbr0
+# ETH_LINK_IF=nic0 (optional override)
+# WIFI_IF=wlan0 (optional override)
+STATIC_CIDR=192.168.1.127/24
+STATIC_GW=192.168.1.1
+WIFI_SSID="MySSID"
+WIFI_PSK="MyPass"
+EOF
+        chmod 600 /etc/net-failover.conf
+        echo "Created fresh config at /etc/net-failover.conf. Please edit it."
+    fi
+fi
+
+# Reload systemd and enable service
+systemctl daemon-reload
+systemctl enable net-failover.service
+echo "Service enabled. Run 'systemctl start net-failover' to activate."

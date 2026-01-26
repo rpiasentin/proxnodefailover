@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+
+systemctl stop net-failover.service || true
+systemctl disable net-failover.service || true
