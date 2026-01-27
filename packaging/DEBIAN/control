@@ -3,7 +3,7 @@ Version: 1.0.0
 Section: net
 Priority: optional
 Architecture: all
-Depends: bash, iproute2, iputils-ping, isc-dhcp-client, wpasupplicant
+Depends: bash, iproute2, iputils-ping, isc-dhcp-client, wpasupplicant, pciutils, usbutils, curl
 Maintainer: Richard Piasentin
 Description: Proxmox Node Network Failover
  Keeps a Proxmox node reachable across relocations.
