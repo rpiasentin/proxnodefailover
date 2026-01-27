@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+SCRIPT_PATH="/usr/local/sbin/net-failover.sh"
+BACKUP_PATH="${SCRIPT_PATH}.legacy_backup_$(date +%Y%m%d_%H%M%S)"
+
+if [ -f "$SCRIPT_PATH" ]; then
+    echo "Found existing script at $SCRIPT_PATH. Backing up to $BACKUP_PATH..."
+    cp "$SCRIPT_PATH" "$BACKUP_PATH"
+fi
+
+SERVICE_PATH="/etc/systemd/system/net-failover.service"
+SERVICE_BACKUP="${SERVICE_PATH}.legacy_backup_$(date +%Y%m%d_%H%M%S)"
+
+if [ -f "$SERVICE_PATH" ]; then
+    echo "Found existing service at $SERVICE_PATH. Backing up to $SERVICE_BACKUP..."
+    cp "$SERVICE_PATH" "$SERVICE_BACKUP"
+fi
