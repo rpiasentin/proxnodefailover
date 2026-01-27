@@ -138,7 +138,20 @@ eth_direct_up() {
   ip route del default dev "$MGMT_IF" >/dev/null 2>&1 || true
 }
 
-# Tailscale reporting
+
+update_issue_banner() {
+  local ip="$1"
+  local issue="/etc/issue"
+  [[ -f "$issue" ]] || return 0
+  
+  # Remove old Management URL lines safely (in-place)
+  sed -i '/Management URL:/d' "$issue"
+  
+  # Append new one
+  echo "" >> "$issue"
+  echo "Management URL: https://${ip}:8006" >> "$issue"
+}
+
 
 ts_self_line() { command -v tailscale >/dev/null 2>&1 && tailscale status --self 2>/dev/null | head -n1 || true; }
 ts_ip() {
@@ -165,6 +178,11 @@ report_connected() {
   if [[ "$key" != "$LAST_REPORT_KEY" ]]; then
     LAST_REPORT_KEY="$key"
     log "CONNECTED: mode=${mode} iface=${ifc} ip=${ip:-none} gw=${gw:-none} tailscale=${tsname:-unknown}(${tsip:-none})"
+    # Explicit Status Log as requested
+    log "STATUS: Mode=${mode} IP=${ip:-none} TailscaleIP=${tsip:-none}"
+    
+    # Update Physical Console Banner
+    [[ -n "${ip:-}" ]] && update_issue_banner "$ip"
   fi
 }
 
