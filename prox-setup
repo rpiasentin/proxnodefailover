@@ -142,7 +142,7 @@ DRYRUN=0
 INVENTORY_ONLY=0
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
-for arg in "${@:-}"; do
+for arg in "$@"; do
   case "$arg" in
     --dry-run) DRYRUN=1 ;;
     --inventory-only) INVENTORY_ONLY=1 ;;
