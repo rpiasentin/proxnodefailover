@@ -166,7 +166,12 @@ ts_name() {
   hostname -s 2>/dev/null || hostname || true
 }
 
+    echo "Management URL: https://${ip}:8006" >> "$issue"
+}
+
 LAST_REPORT_KEY=""
+LAST_REPORT_KEY_LOGGED=""
+LAST_STATUS_TIME=0
 report_connected() {
   local mode="$1" ifc="$2"
   local ip gw tsip tsname key
@@ -175,10 +180,23 @@ report_connected() {
   tsip="$(ts_ip || true)"
   tsname="$(ts_name || true)"
   key="${mode}|${ifc}|${ip}|${gw}|${tsip}|${tsname}"
-  if [[ "$key" != "$LAST_REPORT_KEY" ]]; then
+  key="${mode}|${ifc}|${ip}|${gw}|${tsip}|${tsname}"
+  
+  # Check if 60 seconds have passed since last status log
+  local now=$(date +%s)
+  local time_diff=$((now - ${LAST_STATUS_TIME:-0}))
+
+  if [[ "$key" != "$LAST_REPORT_KEY" || "$time_diff" -ge 60 ]]; then
     LAST_REPORT_KEY="$key"
-    log "CONNECTED: mode=${mode} iface=${ifc} ip=${ip:-none} gw=${gw:-none} tailscale=${tsname:-unknown}(${tsip:-none})"
-    # Explicit Status Log as requested
+    LAST_STATUS_TIME="$now"
+
+    # Only log connectivity change if key changed
+    if [[ "$key" != "$LAST_REPORT_KEY_LOGGED" ]]; then
+       log "CONNECTED: mode=${mode} iface=${ifc} ip=${ip:-none} gw=${gw:-none} tailscale=${tsname:-unknown}(${tsip:-none})"
+       LAST_REPORT_KEY_LOGGED="$key"
+    fi
+    
+    # Explicit Status Log (Heartbeat)
     log "STATUS: Mode=${mode} IP=${ip:-none} TailscaleIP=${tsip:-none}"
     
     # Update Physical Console Banner
@@ -197,7 +215,8 @@ log "Rule: after failover to DHCP/WIFI, STATIC is suppressed until Ethernet carr
 while true; do
   curr_carrier=0
   if carrier "$ETH_LINK_IF"; then curr_carrier=1; fi
-  log "DEBUG: curr_carrier=$curr_carrier"
+  if carrier "$ETH_LINK_IF"; then curr_carrier=1; fi
+  # log "DEBUG: curr_carrier=$curr_carrier" # Reduced spam
   
   if [[ "$curr_carrier" != "$last_carrier" ]]; then
     last_carrier="$curr_carrier"
