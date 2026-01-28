@@ -166,8 +166,7 @@ ts_name() {
   hostname -s 2>/dev/null || hostname || true
 }
 
-    echo "Management URL: https://${ip}:8006" >> "$issue"
-}
+
 
 LAST_REPORT_KEY=""
 LAST_REPORT_KEY_LOGGED=""
@@ -180,7 +179,7 @@ report_connected() {
   tsip="$(ts_ip || true)"
   tsname="$(ts_name || true)"
   key="${mode}|${ifc}|${ip}|${gw}|${tsip}|${tsname}"
-  key="${mode}|${ifc}|${ip}|${gw}|${tsip}|${tsname}"
+
   
   # Check if 60 seconds have passed since last status log
   local now=$(date +%s)
