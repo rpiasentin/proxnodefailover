@@ -6,8 +6,14 @@ Follow these steps to deploy your network failover tool to your Proxmox node.
 
 First, build the Debian package locally and copy it to your Proxmox server.
 
-**Step 1.1: Build the package**
-Run this in your current terminal:
+**Step 1.1: Clone and Build**
+Start by cloning the repository to your local machine (e.g., your Mac):
+```bash
+git clone https://github.com/rpiasentin/proxnodefailover.git
+cd proxnodefailover
+```
+
+Now build the Debian package:
 ```bash
 ./build_deb.sh
 ```
