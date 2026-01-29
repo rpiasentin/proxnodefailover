@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="2.0.0"
+
+# --- HELPER FUNCTIONS ---
+log(){ echo "[$(date -Is)] $*"; }
+die(){ echo "ERROR: $*" >&2; exit 1; }
+need_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root."; }
+have_cmd(){ command -v "$1" >/dev/null 2>&1; }
+
+section() {
+    echo
+    echo "============================================================"
+    echo " $1"
+    echo "============================================================"
+}
+
+# --- INVENTORY FUNCTIONS ---
+inventory_system() {
+    section "SYSTEM INVENTORY"
+    
+    echo "--- Network Controllers (PCI) ---"
+    if have_cmd lspci; then
+        lspci | grep -i network || echo "No PCI network controllers found."
+    else
+        echo "(lspci not found - install pciutils)"
+    fi
+
+    echo -e "\n--- USB Devices (Potential Wi-Fi Dongles) ---"
+    if have_cmd lsusb; then
+        lsusb | grep -iE 'wireless|wifi|wlan|network' || echo "No obvious USB network devices found."
+    else
+        echo "(lsusb not found - install usbutils)"
+    fi
+
+    echo -e "\n--- Detected Network Interfaces ---"
+    ip -br link | grep -v 'lo' | tee /dev/tty | awk '{print $1}' > /tmp/prox_ifaces
+
+    echo -e "\n--- Wireless Extensions ---"
+    if have_cmd iwconfig; then
+        iwconfig 2>&1 | grep -v "no wireless extensions" || true
+    else
+        echo "(iwconfig not found)"
+    fi
+
+    echo -e "\n--- Tailscale Status ---"
+    if have_cmd tailscale; then
+        tailscale status --self || echo "Tailscale installed but not running/authed."
+    else
+        echo "Tailscale NOT installed."
+    fi
+    
+    echo -e "\n--- Failover Service Status ---"
+    systemctl status net-failover.service --no-pager | head -n 5 || echo "Service not installed or not found."
+}
+
+# --- PROMPTING FUNCTIONS ---
+prompt() {
+  local q="$1" d="$2" __var="$3" a=""
+  if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+    printf -v "$__var" "%s" "$d"
+    return 0
+  fi
+  read -r -p "${q} [${d}]: " a
+  a="${a:-$d}"
+  printf -v "$__var" "%s" "$a"
+}
+
+prompt_secret() {
+  local q="$1" d="$2" __var="$3" a=""
+  if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+    printf -v "$__var" "%s" "$d"
+    return 0
+  fi
+  read -r -s -p "${q} [${d}]: " a
+  echo
+  a="${a:-$d}"
+  printf -v "$__var" "%s" "$a"
+}
+
+yesno() {
+  local q="$1" d="$2" __var="$3" a=""
+  if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+    printf -v "$__var" "%s" "$d"
+    return 0
+  fi
+  read -r -p "${q} [${d}]: " a
+  a="${a:-$d}"
+  a="$(echo "$a" | tr '[:lower:]' '[:upper:]')"
+  [[ "$a" == "Y" || "$a" == "YES" ]] && a="Y" || a="N"
+  printf -v "$__var" "%s" "$a"
+}
+
+# --- DETECTION HELPERS ---
+detect_vmbr() {
+  if ip link show vmbr0 >/dev/null 2>&1; then echo "vmbr0"; return 0; fi
+  ls /sys/class/net 2>/dev/null | grep -E '^vmbr' | head -n1 || true
+}
+
+detect_bridge_port() {
+  local br="$1"
+  if [[ -d "/sys/class/net/${br}/brif" ]]; then
+    ls "/sys/class/net/${br}/brif" 2>/dev/null | head -n1 || true
+  else
+    echo ""
+  fi
+}
+
+detect_wifi() { ls /sys/class/net 2>/dev/null | grep -E '^wl' | head -n1 || true; }
+current_default_gw() { ip route show default 2>/dev/null | awk 'NR==1{print $3}' || true; }
+current_ip_cidr() {
+  local ifc="$1"
+  ip -4 -o addr show dev "$ifc" 2>/dev/null | awk '{print $4}' | head -n1 || true
+}
+
+ts_backup() {
+  local f="$1"
+  [[ -e "$f" ]] || return 0
+  local ts; ts="$(date +%Y%m%d-%H%M%S)"
+  cp -a "$f" "${f}.bak.${ts}"
+  log "Backed up $f -> ${f}.bak.${ts}"
+}
+
+# --- MAIN LOGIC ---
+
+usage() {
+  cat <<USAGE
+prox-setup v$VERSION
+
+Usage: $0 [--dry-run] [--non-interactive] [--inventory-only]
+
+Options:
+  --dry-run          Show actions but do not write config/install tailscale.
+  --inventory-only   Dump system network inventory and exit.
+  --non-interactive  Use defaults without prompting.
+
+USAGE
+}
+
+DRYRUN=0
+INVENTORY_ONLY=0
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRYRUN=1 ;;
+    --inventory-only) INVENTORY_ONLY=1 ;;
+    --non-interactive) NONINTERACTIVE=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown argument: $arg" ;;
+  esac
+done
+
+need_root
+
+# ALWAYS Run Inventory First
+inventory_system
+
+if [[ "$INVENTORY_ONLY" == "1" ]]; then
+    exit 0
+fi
+
+section "CONFIGURATION WIZARD"
+
+# Auto-detect defaults
+MGMT_IF="${MGMT_IF:-$(detect_vmbr)}"
+WIFI_IF="${WIFI_IF:-$(detect_wifi)}"
+
+if [[ -z "${MGMT_IF:-}" ]]; then
+  log "WARNING: Could not detect a vmbr* bridge."
+  MGMT_IF="vmbr0"
+fi
+
+ETH_LINK_IF="${ETH_LINK_IF:-$(detect_bridge_port "$MGMT_IF")}" 
+
+DEFAULT_STATIC_CIDR="$(current_ip_cidr "$MGMT_IF")"
+DEFAULT_STATIC_CIDR="${DEFAULT_STATIC_CIDR:-192.168.1.127/24}"
+DEFAULT_GW="$(current_default_gw)"
+DEFAULT_GW="${DEFAULT_GW:-192.168.1.1}"
+
+STATIC_CIDR="${STATIC_CIDR:-$DEFAULT_STATIC_CIDR}"
+STATIC_GW="${STATIC_GW:-$DEFAULT_GW}"
+FALLBACK_CIDR="${FALLBACK_CIDR:-192.168.99.1/24}"
+
+WIFI_SSID="${WIFI_SSID:-Piahas}"
+WIFI_PSK="${WIFI_PSK:-richardpiasentin}"
+CHECK_INTERVAL="${CHECK_INTERVAL:-10}"
+DO_TAILSCALE="${DO_TAILSCALE:-Y}"
+TS_AUTHKEY="${TS_AUTHKEY:-}"
+
+# Interactive Prompts
+prompt "MGMT interface (Proxmox mgmt IP)" "$MGMT_IF" MGMT_IF
+prompt "Physical Ethernet interface (carrier check)" "${ETH_LINK_IF:-nic0}" ETH_LINK_IF
+prompt "Wi-Fi interface" "${WIFI_IF:-wlp2s0}" WIFI_IF
+
+prompt "Preferred WIRED static CIDR" "$STATIC_CIDR" STATIC_CIDR
+prompt "Preferred WIRED static gateway" "$STATIC_GW" STATIC_GW
+prompt "DIRECT-connect fallback CIDR" "$FALLBACK_CIDR" FALLBACK_CIDR
+
+prompt "Wi-Fi SSID" "$WIFI_SSID" WIFI_SSID
+prompt_secret "Wi-Fi password/PSK" "$WIFI_PSK" WIFI_PSK
+
+prompt "Health check interval (sec)" "$CHECK_INTERVAL" CHECK_INTERVAL
+yesno "Install/Enable Tailscale?" "$DO_TAILSCALE" DO_TAILSCALE
+
+if [[ "$DO_TAILSCALE" == "Y" && "${NONINTERACTIVE}" == "0" ]]; then
+  read -r -p "Optional: paste Tailscale authkey (leave empty for interactive login): " local_ans
+  TS_AUTHKEY="${local_ans:-$TS_AUTHKEY}"
+fi
+
+# Review
+echo
+echo "--- CONFIGURATION PLAN ---"
+echo "File: /etc/net-failover.conf"
+echo "  MGMT_IF=$MGMT_IF"
+echo "  ETH_LINK_IF=$ETH_LINK_IF"
+echo "  WIFI_IF=$WIFI_IF"
+echo "  STATIC=$STATIC_CIDR gw $STATIC_GW"
+echo "  FALLBACK=$FALLBACK_CIDR"
+echo "  WIFI=$WIFI_SSID"
+echo "  TAILSCALE=$DO_TAILSCALE"
+echo "--------------------------"
+
+if [[ "$DRYRUN" == "1" ]]; then
+  log "DRY RUN: Exiting without changes."
+  exit 0
+fi
+
+prompt "Write configuration and apply settings now?" "Y" CONFIRM
+if [[ "$CONFIRM" != "Y" ]]; then
+    die "Aborted by user."
+fi
+
+# Write Config
+ts_backup /etc/net-failover.conf
+cat >/etc/net-failover.conf <<CONF
+# Generated by prox-setup v$VERSION on $(date -Is)
+MGMT_IF="$MGMT_IF"
+ETH_LINK_IF="$ETH_LINK_IF"
+WIFI_IF="$WIFI_IF"
+STATIC_CIDR="$STATIC_CIDR"
+STATIC_GW="$STATIC_GW"
+FALLBACK_CIDR="$FALLBACK_CIDR"
+WIFI_SSID="$WIFI_SSID"
+WIFI_PSK="$WIFI_PSK"
+CHECK_INTERVAL="$CHECK_INTERVAL"
+CONF
+chmod 600 /etc/net-failover.conf
+log "Wrote /etc/net-failover.conf"
+
+# Handle Tailscale
+if [[ "$DO_TAILSCALE" == "Y" ]]; then
+    if ! have_cmd tailscale; then
+        log "Installing Tailscale..."
+        curl -fsSL https://tailscale.com/install.sh | sh
+    fi
+    systemctl enable --now tailscaled >/dev/null 2>&1 || true
+    
+    if [[ -n "${TS_AUTHKEY:-}" ]]; then
+        log "Authenticating Tailscale..."
+        tailscale up --authkey="${TS_AUTHKEY}" --ssh || true
+    else
+        log "Ensuring Tailscale is up (interactive auth may be needed)..."
+        tailscale up --ssh || true
+    fi
+fi
+
+# Enable Service
+log "Enabling net-failover service..."
+systemctl enable --now net-failover.service
+log "DONE. Service status:"
+systemctl status net-failover.service --no-pager | head -n 10

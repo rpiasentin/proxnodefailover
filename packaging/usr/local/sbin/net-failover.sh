@@ -138,20 +138,7 @@ eth_direct_up() {
   ip route del default dev "$MGMT_IF" >/dev/null 2>&1 || true
 }
 
-
-update_issue_banner() {
-  local ip="$1"
-  local issue="/etc/issue"
-  [[ -f "$issue" ]] || return 0
-  
-  # Remove old Management URL lines safely (in-place)
-  sed -i '/Management URL:/d' "$issue"
-  
-  # Append new one
-  echo "" >> "$issue"
-  echo "Management URL: https://${ip}:8006" >> "$issue"
-}
-
+# Tailscale reporting
 
 ts_self_line() { command -v tailscale >/dev/null 2>&1 && tailscale status --self 2>/dev/null | head -n1 || true; }
 ts_ip() {
@@ -166,11 +153,7 @@ ts_name() {
   hostname -s 2>/dev/null || hostname || true
 }
 
-
-
 LAST_REPORT_KEY=""
-LAST_REPORT_KEY_LOGGED=""
-LAST_STATUS_TIME=0
 report_connected() {
   local mode="$1" ifc="$2"
   local ip gw tsip tsname key
@@ -179,27 +162,9 @@ report_connected() {
   tsip="$(ts_ip || true)"
   tsname="$(ts_name || true)"
   key="${mode}|${ifc}|${ip}|${gw}|${tsip}|${tsname}"
-
-  
-  # Check if 60 seconds have passed since last status log
-  local now=$(date +%s)
-  local time_diff=$((now - ${LAST_STATUS_TIME:-0}))
-
-  if [[ "$key" != "$LAST_REPORT_KEY" || "$time_diff" -ge 60 ]]; then
+  if [[ "$key" != "$LAST_REPORT_KEY" ]]; then
     LAST_REPORT_KEY="$key"
-    LAST_STATUS_TIME="$now"
-
-    # Only log connectivity change if key changed
-    if [[ "$key" != "$LAST_REPORT_KEY_LOGGED" ]]; then
-       log "CONNECTED: mode=${mode} iface=${ifc} ip=${ip:-none} gw=${gw:-none} tailscale=${tsname:-unknown}(${tsip:-none})"
-       LAST_REPORT_KEY_LOGGED="$key"
-    fi
-    
-    # Explicit Status Log (Heartbeat)
-    log "STATUS: Mode=${mode} IP=${ip:-none} TailscaleIP=${tsip:-none}"
-    
-    # Update Physical Console Banner
-    [[ -n "${ip:-}" ]] && update_issue_banner "$ip"
+    log "CONNECTED: mode=${mode} iface=${ifc} ip=${ip:-none} gw=${gw:-none} tailscale=${tsname:-unknown}(${tsip:-none})"
   fi
 }
 
@@ -214,8 +179,7 @@ log "Rule: after failover to DHCP/WIFI, STATIC is suppressed until Ethernet carr
 while true; do
   curr_carrier=0
   if carrier "$ETH_LINK_IF"; then curr_carrier=1; fi
-  if carrier "$ETH_LINK_IF"; then curr_carrier=1; fi
-  # log "DEBUG: curr_carrier=$curr_carrier" # Reduced spam
+  log "DEBUG: curr_carrier=$curr_carrier"
   
   if [[ "$curr_carrier" != "$last_carrier" ]]; then
     last_carrier="$curr_carrier"
