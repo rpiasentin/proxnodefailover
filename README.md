@@ -1,101 +1,131 @@
-# proxnodefailover
+# Deployment Guide: ProxNodeFailover
 
-A Proxmox host network failover solution that keeps a node reachable across relocations:
+Follow these steps to deploy your network failover tool to your Proxmox node.
 
-1) **Wired static** (preferred)  
-2) **Wired DHCP**  
-3) **Wi‑Fi DHCP**  
-4) **Direct-connect fallback** (static IP on wired for laptop-to-node cable)
+## 💻 1. On Your Mac (Local Terminal)
 
-It is designed to keep access available for **Tailscale management**, with conservative behavior:
-- If static fails and the node falls back to DHCP/Wi‑Fi, it **will not retry static** until the **Ethernet carrier changes** (unplug/plug).  
-- When Wi‑Fi is healthy, the runtime **does not hunt** back to wired until carrier changes.
+First, build the Debian package locally and copy it to your Proxmox server.
 
-The runtime service reports:
-- active mode (wired-static / wired-dhcp / wifi-dhcp / wired-direct)
-- interface, IP, gateway
-- tailscale node name + tailscale IP
-
-## Quick install (safe)
-
-Download **net-failover-setup**, then run it in **write-only** mode first:
-
+**Step 1.1: Build the package**
+Run this in your current terminal:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rpiasentin/proxnodefailover/main/scripts/net-failover-setup -o /root/net-failover-setup
-chmod +x /root/net-failover-setup
-/root/net-failover-setup --write-only
+./build_deb.sh
+```
+*Expected Output:* `Package built: proxnodefailover_1.0.0_all.deb`
+
+**Step 1.2: Transfer to Proxmox**
+Copy the generated file to your node. You will likely be prompted for the root password of your Proxmox node.
+```bash
+scp proxnodefailover_1.0.0_all.deb root@192.168.1.127:/tmp/
 ```
 
-When you're ready to activate:
+---
 
+## 🖥️ 2. On Proxmox (Remote Shell)
+
+Now install and configure the package on the server itself.
+
+**Step 2.1: Log in**
+From your Mac terminal:
 ```bash
-systemctl enable --now net-failover.service
-journalctl -u net-failover.service -f
+ssh root@192.168.1.127
 ```
 
-## Recommended: pin to a tag
+**Step 2.2: Install the Package**
+This command installs the tool and its dependencies (`dhclient`, `wpasupplicant`, etc.).
+```bash
+apt update
+apt install --reinstall /tmp/proxnodefailover_1.0.0_all.deb
+```
+*Note: Using `--reinstall` ensures that even if you are reinstalling the same version (e.g., after a quick fix), it will overwrite the old files correctly.*
 
-Once you create a release tag (example `v1.0.1`):
+
+**Step 2.3: Run the Setup Wizard**
+Now that the package is installed, run the interactive setup tool to configure your network and (optionally) install Tailscale.
+```bash
+prox-setup
+```
+This wizard will:
+*   Inventory your system for WiFi hardware.
+*   Ask for your preferences (Static IP, WiFi details, etc.).
+*   Generate the configuration.
+*   Install Tailscale (if requested).
+*   Enable and start the service.
+
+**Step 2.5: Monitoring & Logs**
+You can monitor the service status in two ways:
+
+1.  **Live Logs (Journal)**:
+    Shows real-time failover decisions, IP status, and Tailscale info.
+    ```bash
+    journalctl -u net-failover -f
+    ```
+    *Look for lines starting with `STATUS:`.*
+
+2.  **Physical Console**:
+    The service automatically updates the login screen ("Issue Banner") on your physical monitor with the current **Management URL**, so you always know where to point your browser if the IP changes.
+
+
+## 🧪 3. Testing & Validation
+
+Once installed, you should verify the failover logic works as expected.
+
+### Scenario A: Verify Normal Operation (Status 1)
+1.  Ensure your ethernet cable is **connected**.
+2.  Check the logs:
+    ```bash
+    journalctl -u net-failover -f
+    # Expect: STATUS: Mode=wired-static ...
+    ```
+3.  Verify you can reach the internet: `ping 8.8.8.8`
+
+### Scenario B: Verify Failover (Physical Test)
+*Warning: This test will temporarily disconnect your SSH session.*
+
+1.  **Unplug** the ethernet cable from the Proxmox node.
+2.  Wait ~10-20 seconds.
+3.  The node should switch to **WiFi Mode**.
+4.  **Verification**:
+    *   Look at the physical monitor/console. The banner should update to the WiFi IP.
+    *   Or, check your router's client list for the Proxmox WiFi connection.
+    *   Or, if you installed Tailscale, try SSHing to the **Tailscale IP**.
+5.  **Recovery**: Plug the cable back in.
+    *   Wait ~10 seconds.
+    *   The node should switch back to `wired-static`.
+
+---
+
+
+## 🚨 Rollback (Uninstall)
+
+If the installation causes issues, you can remove it cleanly from the Proxmox shell:
 
 ```bash
-TAG="v1.0.1"
-curl -fsSL "https://raw.githubusercontent.com/rpiasentin/proxnodefailover/${TAG}/scripts/net-failover-setup" -o /root/net-failover-setup
-chmod +x /root/net-failover-setup
-/root/net-failover-setup --write-only
+apt remove proxnodefailover
 ```
+This stops the background service and removes the scripts.
 
-## If the repo is private
+### Restoring Legacy Version
+When you installed this package, it automatically backed up your existing script and service file to:
+*   `/usr/local/sbin/net-failover.sh.legacy_backup_<TIMESTAMP>`
+*   `/etc/systemd/system/net-failover.service.legacy_backup_<TIMESTAMP>`
 
-Use a GitHub token with repo read access:
-
-```bash
-export GITHUB_TOKEN="ghp_...redacted..."
-curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  https://raw.githubusercontent.com/rpiasentin/proxnodefailover/main/scripts/net-failover-setup \
-  -o /root/net-failover-setup
-chmod +x /root/net-failover-setup
-/root/net-failover-setup --write-only
-```
-
-## What net-failover-setup does
-
-- Detects likely Proxmox management bridge (vmbr0) and its physical port
-- Asks for any node-specific items (interfaces, static IP, gateway)
-- Writes:
-  - `/etc/net-failover.conf` (600)
-  - `/usr/local/sbin/net-failover.sh` (755)
-  - `/etc/systemd/system/net-failover.service`
-- Optionally installs/enables **Tailscale + Tailscale SSH** (authkey optional)
-- Makes timestamped backups of existing files
-
-## Testing
-
-See `docs/TESTING.md`.
-
-## Security notes
-
-See `docs/SECURITY.md`.
-
-## Rollback
-
-1) Disable service:
-```bash
-systemctl disable --now net-failover.service
-```
-
-2) Restore the latest backups:
-- `/etc/net-failover.conf.bak.*`
-- `/usr/local/sbin/net-failover.sh.bak.*`
-- `/etc/systemd/system/net-failover.service.bak.*`
-
-3) Reload systemd:
-```bash
-systemctl daemon-reload
-```
-
-## Files
-
-- `scripts/net-failover-setup` – interactive deployer (supports `--write-only`)
-- `scripts/net-failover.sh` – reference runtime script (same as installed by the deployer)
-- `scripts/net-failover.service` – reference systemd unit
-- `examples/net-failover.conf.example`
+To restore your previous setup:
+1.  Navigate to the directories:
+    ```bash
+    cd /usr/local/sbin/
+    ```
+2.  Find the backup:
+    ```bash
+    ls -l net-failover.sh.legacy*
+    ```
+3.  Restore it:
+    ```bash
+    cp net-failover.sh.legacy_backup_<DATE> net-failover.sh
+    cp /etc/systemd/system/net-failover.service.legacy_backup_<DATE> /etc/systemd/system/net-failover.service
+    ```
+4.  Reload and restart:
+    ```bash
+    systemctl daemon-reload
+    systemctl enable --now net-failover
+    ```
