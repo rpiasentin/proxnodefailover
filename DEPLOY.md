@@ -31,10 +31,20 @@ scp proxnodefailover_1.0.0_all.deb root@192.168.1.127:/tmp/
 
 Now install and configure the package on the server itself.
 
-**Step 2.1: Log in**
+**Step 2.1: Log in and Check Internet**
 From your Mac terminal:
 ```bash
 ssh root@192.168.1.127
+```
+
+**⚠️ Prerequisite: Ensure Internet Access**
+The installation requires downloading dependencies (`wpasupplicant`). Verify connectivity:
+```bash
+ping -c 3 google.com
+```
+If this fails (e.g., "Temporary failure in name resolution"), **fix your DNS** temporarily:
+```bash
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
 ```
 
 **Step 2.2: Install the Package**
