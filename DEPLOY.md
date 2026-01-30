@@ -150,6 +150,7 @@ If you reinstall Proxmox or change IPs, you might see this error when running `s
 `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`
 
 
+
 ### Option 1: Quick Fix (Remove Old Key)
 **The error message above stops the connection immediately.** You cannot ignore it.
 Run this command on your Mac to remove the old key:
@@ -158,6 +159,21 @@ ssh-keygen -R 192.168.1.127
 ```
 (Replace `192.168.1.127` with your IP).
 **Now try to connect again.** It will ask you to verify the new fingerprint—type `yes` to proceed.
+
+## ⚠️ Troubleshooting: Apt "401 Unauthorized" Error
+
+If the installation fails with `401 Unauthorized` for `enterprise.proxmox.com`, your node is configured for the Enterprise repository without a subscription.
+
+**Fix:** Disable the enterprise repo and enable the "no-subscription" repo.
+```bash
+# Disable Enterprise Repo
+sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/pve-enterprise.list
+sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/ceph.list
+
+# Run Setup Again
+prox-setup
+```
+
 
 
 ### Option 2: Verify Key Fingerprint (Secure)

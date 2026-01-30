@@ -159,6 +159,20 @@ ssh-keygen -R 192.168.1.127
 (Replace `192.168.1.127` with your IP).
 **Now try to connect again.** It will ask you to verify the fingerprint—type `yes` to proceed.
 
+## ⚠️ Troubleshooting: Apt "401 Unauthorized" Error
+
+If the installation fails with `401 Unauthorized` for `enterprise.proxmox.com`, your node is configured for the Enterprise repository without a subscription.
+
+**Fix:** Disable the enterprise repo and enable the "no-subscription" repo.
+```bash
+# Disable Enterprise Repo
+sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/pve-enterprise.list
+sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/ceph.list
+
+# Run Setup Again
+prox-setup
+```
+
 
 ### Option 2: Verify Key Fingerprint (Secure)
 To ensure you are connecting to the correct server (and not a man-in-the-middle):
