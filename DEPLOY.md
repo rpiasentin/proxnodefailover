@@ -166,11 +166,20 @@ If the installation fails with `401 Unauthorized` for `enterprise.proxmox.com`, 
 
 **Fix:** Disable the enterprise repo and enable the "no-subscription" repo.
 ```bash
-# Disable Enterprise Repo
-sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/pve-enterprise.list
-sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/ceph.list
+# 1. Disable Enterprise Repos (Handle both .list and .sources formats)
+# Rename the .sources files to .disabled to ignore them
+mv /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/pve-enterprise.sources.disabled 2>/dev/null || true
+mv /etc/apt/sources.list.d/ceph.sources /etc/apt/sources.list.d/ceph.sources.disabled 2>/dev/null || true
 
-# Run Setup Again
+# Also catch legacy .list files just in case
+sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/pve-enterprise.list 2>/dev/null || true
+sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/ceph.list 2>/dev/null || true
+
+# 3. Clean and Update
+apt clean
+apt update
+
+# 4. Run Setup Again
 prox-setup
 ```
 
