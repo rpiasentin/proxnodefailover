@@ -133,5 +133,32 @@ To restore your previous setup:
 4.  Reload and restart:
     ```bash
     systemctl daemon-reload
-    systemctl enable --now net-failover
+
+## ⚠️ Troubleshooting: SSH Host Key Changed
+
+If you reinstall Proxmox or change IPs, you might see this error when running `scp` or `ssh`:
+`WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`
+
+### Option 1: Quick Fix (Remove Old Key)
+Run this command on your Mac to remove the old stored fingerprint:
+```bash
+ssh-keygen -R 192.168.1.127
+```
+(Replace `192.168.1.127` with your actual Proxmox IP if different).
+Then try to connect again; you will be asked to verify the new fingerprint. Type `yes`.
+
+### Option 2: Verify Key Fingerprint (Secure)
+To ensure you are connecting to the correct server (and not a man-in-the-middle):
+
+1.  **On the Proxmox Physical Console**:
+    Run this command to see the server's actual fingerprint:
+    ```bash
+    ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
     ```
+    *(Note: The error message usually specifies which key type matches, e.g., ED25519 or ECDSA).*
+
+2.  **On Your Mac**:
+    Compare the output from the console with the fingerprint shown in the "WARNING" message.
+    *   If they match, it is safe to proceed with **Option 1**.
+    *   If they do not match, **DO NOT CONNECT**—something is wrong with the network path.
+
