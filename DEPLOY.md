@@ -139,13 +139,16 @@ To restore your previous setup:
 If you reinstall Proxmox or change IPs, you might see this error when running `scp` or `ssh`:
 `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`
 
+
 ### Option 1: Quick Fix (Remove Old Key)
-Run this command on your Mac to remove the old stored fingerprint:
+**The error message above stops the connection immediately.** You cannot ignore it.
+Run this command on your Mac to remove the old key:
 ```bash
 ssh-keygen -R 192.168.1.127
 ```
-(Replace `192.168.1.127` with your actual Proxmox IP if different).
-Then try to connect again; you will be asked to verify the new fingerprint. Type `yes`.
+(Replace `192.168.1.127` with your IP).
+**Now try to connect again.** It will ask you to verify the new fingerprint—type `yes` to proceed.
+
 
 ### Option 2: Verify Key Fingerprint (Secure)
 To ensure you are connecting to the correct server (and not a man-in-the-middle):
